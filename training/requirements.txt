@@ -3,4 +3,8 @@ keras==2.7.0
 numpy==1.21.4
 tensorflow==2.7.0
 tqdm==4.62.3
+<<<<<<< HEAD
 typing-extensions==3.10.0.2
+=======
+typing-extensions==3.10.0.2
+>>>>>>> bc4edc1e4547b114ee1ca50b1b516aa6c0a302b4
