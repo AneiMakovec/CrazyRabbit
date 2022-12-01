@@ -1,4 +1,6 @@
-#pragma once
+#ifndef DIRICHLET_HPP
+#define DIRICHLET_HPP
+
 #include <random>
 #include <vector>
 
@@ -47,3 +49,4 @@ std::vector<double> dirichlet_distribution<RNG>::operator()(RNG& generator){
 	return x;
 }
 
+#endif

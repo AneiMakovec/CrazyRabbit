@@ -1,5 +1,5 @@
-#ifndef UCI_HPP_
-#define UCI_HPP_
+#ifndef UCI_HPP
+#define UCI_HPP
 
 #include <cstddef>
 #include <iostream>

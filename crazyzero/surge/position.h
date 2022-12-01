@@ -1,13 +1,14 @@
-#pragma once
+#ifndef SURGE_POSITION_HPP
+#define SURGE_POSITION_HPP
 
-#include "types.h"
 #include <ostream>
 #include <string>
-#include "tables.h"
 #include <utility>
 #include <sstream>
 #include <list>
 #include <unordered_map>
+#include "types.h"
+#include "tables.h"
 
 //A psuedorandom number generator
 //Source: Stockfish
@@ -208,7 +209,7 @@ public:
 	Move *generate_legals(Move* list);
 
 	template<Color Us>
-	std::vector<Move> generate_legals();
+	move_vector<Move> generate_legals();
 
 	inline EndType is_checkmate();
 	inline bool is_insufficient_material();
@@ -956,10 +957,11 @@ Move* Position::generate_legals(Move* list) {
 
 //Generates all legal moves in a position for the given side. Advances the move pointer and returns it.
 template<Color Us>
-std::vector<Move> Position::generate_legals() {
+move_vector<Move> Position::generate_legals() {
 	constexpr Color Them = ~Us;
 
-	std::vector<Move> list;
+	move_vector<Move> list;
+	list.reserve(200);
 
 	const Bitboard us_bb = all_pieces<Us>();
 	const Bitboard them_bb = all_pieces<Them>();
@@ -1058,14 +1060,14 @@ std::vector<Move> Position::generate_legals() {
 			if (checkers == shift<relative_dir<Us>(SOUTH)>(SQUARE_BB[history.back().epsq])) {
 				//b1 contains our pawns that can capture the checker e.p.
 				b1 = pawn_attacks<Them>(history.back().epsq) & bitboard_of(Us, PAWN) & not_pinned;
-				while (b1) list.push_back(Move(pop_lsb(&b1), history.back().epsq, EN_PASSANT));
+				while (b1) list.emplace_back(pop_lsb(&b1), history.back().epsq, EN_PASSANT);
 			}
 			//FALL THROUGH INTENTIONAL
 		case make_piece(Them, KNIGHT):
 			//If the checker is either a pawn or a knight, the only legal moves are to capture
 			//the checker. Only non-pinned pieces can capture it
 			b1 = attackers_from<Us>(checker_square, all) & not_pinned;
-			while (b1) list.push_back(Move(pop_lsb(&b1), checker_square, CAPTURE));
+			while (b1) list.emplace_back(pop_lsb(&b1), checker_square, CAPTURE);
 
 			return list;
 		default:
@@ -1122,13 +1124,13 @@ std::vector<Move> Position::generate_legals() {
 					^ shift<relative_dir<Us>(SOUTH)>(SQUARE_BB[history.back().epsq]),
 					MASK_RANK[rank_of(our_king)]) &
 					their_orth_sliders) == 0)
-					list.push_back(Move(s, history.back().epsq, EN_PASSANT));
+					list.emplace_back(s, history.back().epsq, EN_PASSANT);
 			}
 
 			//Pinned pawns can only capture e.p. if they are pinned diagonally and the e.p. square is in line with the king 
 			b1 = b2 & pinned & LINE[history.back().epsq][our_king];
 			if (b1) {
-				list.push_back(Move(bsf(b1), history.back().epsq, EN_PASSANT));
+				list.emplace_back(bsf(b1), history.back().epsq, EN_PASSANT);
 			}
 		}
 
@@ -1137,10 +1139,20 @@ std::vector<Move> Position::generate_legals() {
 		//2. No piece is attacking between the the rook and the king
 		//3. The king is not in check
 		if (!((history.back().entry & oo_mask<Us>()) | ((all | danger) & oo_blockers_mask<Us>())))
-			list.push_back(Us == WHITE ? Move(e1, g1, OO) : Move(e8, g8, OO));
+		{
+			if (Us == WHITE)
+				list.emplace_back(e1, g1, OO);
+			else
+				list.emplace_back(e8, g8, OO);
+		}
 		if (!((history.back().entry & ooo_mask<Us>()) |
 			((all | (danger & ~ignore_ooo_danger<Us>())) & ooo_blockers_mask<Us>())))
-			list.push_back(Us == WHITE ? Move(e1, c1, OOO) : Move(e8, c8, OOO));
+		{
+			if (Us == WHITE)
+				list.emplace_back(e1, c1, OOO);
+			else
+				list.emplace_back(e8, c8, OOO);
+		}
 
 		//For each pinned rook, bishop or queen...
 		b1 = ~(not_pinned | bitboard_of(Us, KNIGHT));
@@ -1225,12 +1237,12 @@ std::vector<Move> Position::generate_legals() {
 
 	while (b2) {
 		s = pop_lsb(&b2);
-		list.push_back(Move(s - relative_dir<Us>(NORTH), s, QUIET));
+		list.emplace_back(s - relative_dir<Us>(NORTH), s, QUIET);
 	}
 
 	while (b3) {
 		s = pop_lsb(&b3);
-		list.push_back(Move(s - relative_dir<Us>(NORTH_NORTH), s, DOUBLE_PUSH));
+		list.emplace_back(s - relative_dir<Us>(NORTH_NORTH), s, DOUBLE_PUSH);
 	}
 
 	//Pawn captures
@@ -1239,12 +1251,12 @@ std::vector<Move> Position::generate_legals() {
 
 	while (b2) {
 		s = pop_lsb(&b2);
-		list.push_back(Move(s - relative_dir<Us>(NORTH_WEST), s, CAPTURE));
+		list.emplace_back(s - relative_dir<Us>(NORTH_WEST), s, CAPTURE);
 	}
 
 	while (b3) {
 		s = pop_lsb(&b3);
-		list.push_back(Move(s - relative_dir<Us>(NORTH_EAST), s, CAPTURE));
+		list.emplace_back(s - relative_dir<Us>(NORTH_EAST), s, CAPTURE);
 	}
 
 	//b1 now contains non-pinned pawns which ARE on the last rank (about to promote)
@@ -1255,10 +1267,10 @@ std::vector<Move> Position::generate_legals() {
 		while (b2) {
 			s = pop_lsb(&b2);
 			//One move is added for each promotion piece
-			list.push_back(Move(s - relative_dir<Us>(NORTH), s, PR_KNIGHT));
-			list.push_back(Move(s - relative_dir<Us>(NORTH), s, PR_BISHOP));
-			list.push_back(Move(s - relative_dir<Us>(NORTH), s, PR_ROOK));
-			list.push_back(Move(s - relative_dir<Us>(NORTH), s, PR_QUEEN));
+			list.emplace_back(s - relative_dir<Us>(NORTH), s, PR_KNIGHT);
+			list.emplace_back(s - relative_dir<Us>(NORTH), s, PR_BISHOP);
+			list.emplace_back(s - relative_dir<Us>(NORTH), s, PR_ROOK);
+			list.emplace_back(s - relative_dir<Us>(NORTH), s, PR_QUEEN);
 		}
 
 		//Promotion captures
@@ -1268,19 +1280,19 @@ std::vector<Move> Position::generate_legals() {
 		while (b2) {
 			s = pop_lsb(&b2);
 			//One move is added for each promotion piece
-			list.push_back(Move(s - relative_dir<Us>(NORTH_WEST), s, PC_KNIGHT));
-			list.push_back(Move(s - relative_dir<Us>(NORTH_WEST), s, PC_BISHOP));
-			list.push_back(Move(s - relative_dir<Us>(NORTH_WEST), s, PC_ROOK));
-			list.push_back(Move(s - relative_dir<Us>(NORTH_WEST), s, PC_QUEEN));
+			list.emplace_back(s - relative_dir<Us>(NORTH_WEST), s, PC_KNIGHT);
+			list.emplace_back(s - relative_dir<Us>(NORTH_WEST), s, PC_BISHOP);
+			list.emplace_back(s - relative_dir<Us>(NORTH_WEST), s, PC_ROOK);
+			list.emplace_back(s - relative_dir<Us>(NORTH_WEST), s, PC_QUEEN);
 		}
 
 		while (b3) {
 			s = pop_lsb(&b3);
 			//One move is added for each promotion piece
-			list.push_back(Move(s - relative_dir<Us>(NORTH_EAST), s, PC_KNIGHT));
-			list.push_back(Move(s - relative_dir<Us>(NORTH_EAST), s, PC_BISHOP));
-			list.push_back(Move(s - relative_dir<Us>(NORTH_EAST), s, PC_ROOK));
-			list.push_back(Move(s - relative_dir<Us>(NORTH_EAST), s, PC_QUEEN));
+			list.emplace_back(s - relative_dir<Us>(NORTH_EAST), s, PC_KNIGHT);
+			list.emplace_back(s - relative_dir<Us>(NORTH_EAST), s, PC_BISHOP);
+			list.emplace_back(s - relative_dir<Us>(NORTH_EAST), s, PC_ROOK);
+			list.emplace_back(s - relative_dir<Us>(NORTH_EAST), s, PC_QUEEN);
 		}
 	}
 
@@ -1312,7 +1324,7 @@ std::vector<Move> Position::generate_legals() {
 				Square p;
 				while (to) {
 					p = pop_lsb(&to);
-					list.push_back(Move(p, p, drop));
+					list.emplace_back(p, p, drop);
 				}
 			}
 		}
@@ -1790,3 +1802,5 @@ void Position::move_piece_quiet(Square from, Square to) {
 	board[to] = board[from];
 	board[from] = NO_PIECE;
 }
+
+#endif

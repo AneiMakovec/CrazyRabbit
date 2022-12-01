@@ -5,7 +5,7 @@
 #include "utils.h"
 #include "crazyzero.h"
 #include "cppflow/cppflow.h"
-#include "uci/uci.h"
+#include "uci/uci.hpp"
 
 
 
@@ -237,6 +237,8 @@ void play(std::ofstream& log, const int num_games, const int player1_nsims, cons
 
 	pgn_log.close();
 
+	//delete player1.nnet.model;
+	//player1.nnet.model = NULL;
 	player2.nnet.model = NULL;
 }
 
@@ -367,7 +369,8 @@ void start_testing(std::ofstream& log) {
 	play(log, 100, num_sims_1, eval_config, num_sims_2, 0);
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) 
+{
 	_putenv("TF_CPP_MIN_LOG_LEVEL=3");
 	using namespace crazyzero;
 
@@ -376,6 +379,39 @@ int main(int argc, char* argv[]) {
 	initialise_eval_tables();
 
 	std::cout << "CrazyZero 2.1 by Anei Makovec\n";
+
+	/*
+	Board b;
+	MateSearch m;
+
+	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+	Move move = m.mate_move(b);
+	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+	if (move.from() != NO_SQUARE)
+		std::cout << "CHECKMATE\n";
+	else
+		std::cout << "NO CHECKMATE\n";
+
+	std::cout << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " milliseconds\n";
+	*/
+
+	//Testing MCTS simulations.
+	Board b;
+	MCTS mcts;
+	mcts.time_control = false;
+	mcts.num_sims = 1000;
+	mcts.player = WHITE;
+	mcts.init(b);
+
+	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+	const Move& move = mcts.best_move(b);
+	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+	std::cout << "Best move: " << move << "\n";
+	std::cout << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() / 1000.0 << " seconds\n";
+
+	return 0;
 
 	if (argc > 1 && std::string(argv[1]) == "-test_mode") {
 		// enter testing mode
@@ -577,6 +613,14 @@ int main(int argc, char* argv[]) {
 		uci.receive_uci_new_game.connect([&]() {
 			board.reset();
 			mcts.reset();
+
+			/*log << "--------------------------------------------------------------------\n";
+			log << "--------------------------------------------------------------------\n";
+			log << "--------------------------- NEW GAME -------------------------------\n";
+			log << "--------------------------------------------------------------------\n";
+			log << "--------------------------------------------------------------------\n";
+			log << board.p << "\n";
+			log.flush();*/
 			});
 		uci.receive_position.connect([&](const std::string& fen, const std::vector<std::string>& moves) {
 			if (moves.size()) {
@@ -587,6 +631,16 @@ int main(int argc, char* argv[]) {
 
 				Move prev_move(moves.back());
 				board.push_encoded(prev_move.hash());
+
+				/*log << "------------------------- MOVE HISTORY -----------------------------\n";
+				for (std::string uci_move : moves)
+					log << uci_move << " ";
+				log << "\n";
+				log << "------------------------- MOVE HISTORY -----------------------------\n\n";
+
+				log << "OPPONENT'S MOVE: " << prev_move << "\n";
+				log << board.p << "\n";
+				log.flush();*/
 			} else {
 				mcts.player = WHITE;
 			}
@@ -619,6 +673,10 @@ int main(int argc, char* argv[]) {
 			Move best_move = mcts.best_move(board);
 			board.push(best_move);
 			mcts.executed_moves++;
+
+			/*log << "MY MOVE: " << best_move << "\n";
+			log << board.p << "\n";
+			log.flush();*/
 
 			if (debug_mode)
 				std::cout << "info depth " << mcts.explored_nodes << " score cp " << mcts.best_move_cp << " nodes " << mcts.explored_nodes << " time " << mcts.time_simulating << " nps " << static_cast<long long>(static_cast<double>(mcts.explored_nodes) / (static_cast<double>(mcts.time_simulating) / 1000.0)) << "\n";

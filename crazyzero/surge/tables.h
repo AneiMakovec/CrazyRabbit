@@ -1,4 +1,5 @@
-#pragma once
+#ifndef SURGE_TABLES_HPP
+#define SURGE_TABLES_HPP
 
 #include "types.h"
 
@@ -380,3 +381,5 @@ void initialise_all_databases() {
 	initialise_line();
 	initialise_pseudo_legal();
 }
+
+#endif

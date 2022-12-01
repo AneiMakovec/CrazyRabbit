@@ -1,4 +1,5 @@
-#pragma once
+#ifndef SURGE_TYPES_HPP
+#define SURGE_TYPES_HPP
 #pragma warning(disable : 26812)
 
 #include <cstdint>
@@ -45,10 +46,10 @@ const int knight_move_offsets[8]{
 	15, 17, -17, -15, 6, -10, 10, -6
 };
 
-constexpr auto KNIGHT_MOVE_START = 56;
-constexpr auto UNDERPROMOTION_MOVE_START = 64;
-constexpr auto DROP_MOVE_START = 76;
-constexpr auto MOVES_PER_SQUARE = 81;
+constexpr uint16_t KNIGHT_MOVE_START = 56U;
+constexpr uint16_t UNDERPROMOTION_MOVE_START = 64U;
+constexpr uint16_t DROP_MOVE_START = 76U;
+constexpr uint16_t MOVES_PER_SQUARE = 81U;
 
 const size_t NPIECE_TYPES = 6;
 enum PieceType : int {
@@ -89,7 +90,7 @@ constexpr Color color_of(Piece pc) {
 typedef uint64_t Bitboard;
 
 const size_t NSQUARES = 64;
-enum Square : int {
+enum Square : uint16_t {
 	a1, b1, c1, d1, e1, f1, g1, h1,
 	a2, b2, c2, d2, e2, f2, g2, h2,
 	a3, b3, c3, d3, e3, f3, g3, h3,
@@ -173,8 +174,18 @@ constexpr Direction relative_dir(Direction d) {
 	return Direction(C == WHITE ? d : -d);
 }
 
+//Default data structure to hold generated legal moves.
+template<class T>
+class move_vector : public std::vector<T>
+{
+public:
+	long n_visits = 0L;
+	double end_score = 0.0;
+};
+
+
 //The type of the move
-enum MoveFlags : int {
+enum MoveFlags : uint16_t {
 	QUIET, DOUBLE_PUSH,
 	OO, OOO,
 	CAPTURE,
@@ -185,26 +196,31 @@ enum MoveFlags : int {
 	PROMOTIONS, PROMOTION_CAPTURES, DROPS
 };
 
-
 class Move {
 private:
 	//The internal representation of the move
 	Square from_square;
 	Square to_square;
 	MoveFlags move_flags;
-	int move_hash;
+	uint16_t move_hash;
 public:
-	//Defaults to a null move (a1a1)
-	inline Move() : from_square(NO_SQUARE), to_square(NO_SQUARE), move_flags(DROPS), move_hash(0) {}
+	double policy;
+	double Q_value;
+	long n_visits;
 
-	inline Move(Square from, Square to, MoveFlags flags) {
+	//Defaults to a null move (a1a1)
+	inline Move() : from_square(NO_SQUARE), to_square(NO_SQUARE), move_flags(DROPS), move_hash(0U), policy(0.0), Q_value(0.0), n_visits(0L) {}
+
+	inline Move(Square from, Square to, MoveFlags flags) : policy(0.0), Q_value(0.0), n_visits(0L)
+	{
 		from_square = from;
 		to_square = to;
 		move_flags = flags;
 		move_hash = encode();
 	}
 
-	inline Move(const std::string uci) {
+	inline Move(const std::string uci) : policy(0.0), Q_value(0.0), n_visits(0L)
+	{
 		move_flags = DROPS;
 		if (uci[1] == '@') {
 			//Drop
@@ -257,11 +273,13 @@ public:
 	inline Square to() const { return to_square; }
 	inline Square from() const { return from_square; }
 	inline MoveFlags flags() const { return move_flags; }
-	inline int hash() const { return move_hash; }
+	inline uint16_t hash() const { return move_hash; }
 
 	//void operator=(Move m) { move = m.move; }
-	bool operator==(Move a) const { return from_square == a.from() && to_square == a.to() && move_flags == a.flags(); }
-	bool operator!=(Move a) const { return from_square != a.from() || to_square != a.to() || move_flags != a.flags(); }
+	//bool operator==(Move a) const { return from_square == a.from() && to_square == a.to() && move_flags == a.flags(); }
+	//bool operator!=(Move a) const { return from_square != a.from() || to_square != a.to() || move_flags != a.flags(); }
+	bool operator==(Move a) const { return move_hash == a.hash() && move_flags == a.flags(); }
+	bool operator!=(Move a) const { return move_hash != a.hash() || move_flags != a.flags(); }
 
 	//Used for move encoding. Returns direction of knight movement if it is a knight move
 	static inline int is_knight_move(const int from_square, const int to_square) {
@@ -310,9 +328,9 @@ public:
 		}
 	}
 
-	inline int encode() {
-		int encoded_move;
-		int flag = move_flags;
+	inline uint16_t encode() {
+		uint16_t encoded_move;
+		uint16_t flag = move_flags;
 		if (flag >= DROP_PAWN && flag <= DROP_QUEEN) {
 			// encode drop
 			encoded_move = DROP_MOVE_START + (flag - DROP_PAWN);
@@ -375,7 +393,7 @@ inline Move* make<PROMOTION_CAPTURES>(Square from, Bitboard to, Move* list) {
 //Adds, to the move pointer all moves of the form (from, s), where s is a square in the bitboard to
 template<MoveFlags F = QUIET>
 inline void make(Square from, Bitboard to, std::vector<Move>& list) {
-	while (to) list.push_back(Move(from, pop_lsb(&to), F));
+	while (to) list.emplace_back(from, pop_lsb(&to), F);
 }
 
 //Adds, to the move pointer all quiet promotion moves of the form (from, s), where s is a square in the bitboard to
@@ -384,10 +402,10 @@ inline void make<PROMOTIONS>(Square from, Bitboard to, std::vector<Move>& list) 
 	Square p;
 	while (to) {
 		p = pop_lsb(&to);
-		list.push_back(Move(from, p, PR_KNIGHT));
-		list.push_back(Move(from, p, PR_BISHOP));
-		list.push_back(Move(from, p, PR_ROOK));
-		list.push_back(Move(from, p, PR_QUEEN));
+		list.emplace_back(from, p, PR_KNIGHT);
+		list.emplace_back(from, p, PR_BISHOP);
+		list.emplace_back(from, p, PR_ROOK);
+		list.emplace_back(from, p, PR_QUEEN);
 	}
 }
 
@@ -397,10 +415,10 @@ inline void make<PROMOTION_CAPTURES>(Square from, Bitboard to, std::vector<Move>
 	Square p;
 	while (to) {
 		p = pop_lsb(&to);
-		list.push_back(Move(from, p, PC_KNIGHT));
-		list.push_back(Move(from, p, PC_BISHOP));
-		list.push_back(Move(from, p, PC_ROOK));
-		list.push_back(Move(from, p, PC_QUEEN));
+		list.emplace_back(from, p, PC_KNIGHT);
+		list.emplace_back(from, p, PC_BISHOP);
+		list.emplace_back(from, p, PC_ROOK);
+		list.emplace_back(from, p, PC_QUEEN);
 	}
 }
 
@@ -640,3 +658,5 @@ std::ostream& operator<<(std::ostream& os, const Move& m) {
 	}
 	return os;
 }
+
+#endif
