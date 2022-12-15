@@ -1,20 +1,11 @@
 #ifndef CRAZYZERO_HPP
 #define CRAZYZERO_HPP
 
-#include <stdint.h>
 #include <string>
-#include <list>
 #include <vector>
-#include <unordered_map>
-#include <map>
-#include <math.h>
-#include <time.h>
 #include <random>
 #include <limits>
 #include <chrono>
-#include <algorithm>
-#include <execution>
-#include <functional>
 #include "surge/position.h"
 #include "surge/tables.h"
 #include "surge/types.h"
@@ -22,6 +13,7 @@
 #include "cppflow/cppflow.h"
 
 #define NNET_MODEL_PATH "./model"
+#define OPENINGS_PATH "./openings.txt"
 
 namespace crazyzero
 {
@@ -36,7 +28,7 @@ namespace crazyzero
         std::string starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR[] w KQkq - 0 1";
     public:
         Position p;
-        long long hash;
+        std::string hash;
 
         Board()
         {
@@ -101,7 +93,7 @@ namespace crazyzero
     public:
         EvalMask eval_types;
 
-        constexpr Evaluator() : eval_types(0U) {}
+        constexpr Evaluator() : eval_types(0U), WT{}, BT{} {}
         ~Evaluator() = default;
 
         inline int q_to_cp(double q);
@@ -118,6 +110,63 @@ namespace crazyzero
         inline double eval(Board& board);
     };
 
+    //Holds information about opening moves.
+    class Openings
+    {
+        robin_hood::unordered_map<std::string, std::vector<Move>> opening_moves;
+
+    public:
+        inline void init()
+        {
+            std::ifstream file(OPENINGS_PATH);
+
+            if (file.is_open())
+            {
+                std::string line;
+                while (file)
+                {
+                    std::getline(file, line);
+                    
+                    size_t split_point = line.find(";");
+                    std::string board_hash = line.substr(0, split_point);
+                    std::string moves = line.substr(split_point + 1);
+
+                    std::vector<Move> o_moves;
+                    while (true)
+                    {
+                        split_point = moves.find(",");
+                        o_moves.emplace_back(moves.substr(0, split_point));
+
+                        if (split_point == std::string::npos)
+                            break;
+                        else
+                            moves = moves.substr(split_point + 1);
+                    }
+
+                    opening_moves[board_hash] = o_moves;
+                }
+            }
+
+            file.close();
+        }
+
+        inline Move get_move(std::string board_hash)
+        {
+            auto found_moves = opening_moves.find(board_hash);
+            if (found_moves == opening_moves.cend())
+                return Move();
+
+            std::vector<Move>& moves = (*found_moves).second;
+
+            if (moves.size() == 1)
+                return moves.front();
+
+            srand(time(NULL));
+            int index = rand() % moves.size();
+            return moves[index];
+        }
+    };
+
     //Depth-first mate search implementation.
     class MateSearch
     {
@@ -126,13 +175,10 @@ namespace crazyzero
         inline bool find_mate(Board board, Move move, const int depth)
         {
             board.push(move);
-            EndType end = board.p.is_checkmate();
+            double es = board.end_score(player);
 
-            if (depth == max_depth)
-                return (end == CHECKMATE);
-
-            if (end != NONE)
-                return (board.p.turn() != player && end == CHECKMATE);
+            if (depth == max_depth || es != 0.0)
+                return (es > 0.5);
 
             for (Move& move : board.legal_moves())
             {
@@ -171,16 +217,18 @@ namespace crazyzero
         
         NNet nnet;
         Evaluator eval;
+        Openings openings;
         MateSearch mate_search;
+        bool use_openings;
+        bool use_mate_search;
 
-        Dirichlet dirichlet;
+        ModMask config;
+        Color player;
 
-        MCTS_config config;
+        bool initialized;
         bool time_control;
         bool variable_time_control;
         int num_sims;
-        bool initialized = false;
-        Color player;
         long long time_per_move;
         long long original_time;
         bool time_saving_mode;
@@ -190,22 +238,9 @@ namespace crazyzero
         int best_move_cp;
         bool mode_switch;
 
-        MCTS()
+        MCTS() : initialized(false), time_control(true), variable_time_control(false), num_sims(100), player(NO_COLOR), use_openings(true), use_mate_search(true), time_per_move(-1LL),
+                 original_time(-1LL), time_saving_mode(false), time_simulating(0LL), executed_moves(0), explored_nodes(0), best_move_cp(0), mode_switch(false)
         {
-            time_control = true;
-            variable_time_control = false;
-            num_sims = 100;
-
-            player = NO_COLOR;
-            time_per_move = -1LL;
-            original_time = -1LL;
-            time_saving_mode = false;
-            time_simulating = 0LL;
-            executed_moves = 0;
-            explored_nodes = 0;
-            best_move_cp = 0;
-            mode_switch = false;
-
             // initialize playing strategies
             set_best_move_strategy(BestMoveStrat::Default);
             set_node_expansion_strategy(NodeExpansionStrat::Default);
@@ -217,26 +252,28 @@ namespace crazyzero
         ~MCTS() = default;
 
         inline void init(Board& board);
+        inline void init(cppflow::model* nnet_model);
         inline void init_time(const int available_time, const int increment);
         inline void update_time(const int remaining_time);
-        inline void update_config();
+        //inline void update_config();
         inline void reset();
-        inline void soft_reset();
+        //inline void soft_reset();
+        inline void set_config(const ModMask conf);
+        inline void set_best_move_strategy(const BestMoveStrat best_move_type);
+        inline void set_node_expansion_strategy(const NodeExpansionStrat expansion_type);
+        inline void set_backprop_strategy(const BackpropStrat backprop_type);
         inline void add_policy_enhancement_strategy(const PolicyEnhancementStrat policy_type);
+        inline void remove_policy_enhancement_strategies();
 
         inline Move best_move(Board& board);
         inline void search(Board board);
 
     private:
         inline void on_mode_switch(bool state);
-        inline void set_best_move_strategy(const BestMoveStrat best_move_type);
-        inline void set_node_expansion_strategy(const NodeExpansionStrat expansion_type);
-        inline void set_backprop_strategy(const BackpropStrat backprop_type);
-        inline void remove_policy_enhancement_strategies();
 
         // ----------------------- STRATEGY INSTANCES ------------------------
         Move& (*best_move_strat)(move_vector<Move>&);
-        std::vector<void (*)(MCTS*, Board&, move_vector<Move>&)> policy_strats;
+        std::vector<void (*)(Board&, move_vector<Move>&)> policy_strats;
         Move& (*expansion_strat)(move_vector<Move>&);
         double (*backprop_strat)(const Move&, const double&);
     };
@@ -258,11 +295,11 @@ namespace crazyzero
     inline double backprop_sma(const Move& move, const double& v);
 
     //Strategy for enhancing the prior probability of legal moves returned by the neural network.
-    inline void enhance_policy_dirichlet(MCTS* mcts, Board& board, move_vector<Move>& moves);
-    inline void enhance_policy_checking_moves(MCTS* mcts, Board& board, move_vector<Move>& moves);
-    inline void enhance_policy_forking_moves(MCTS* mcts, Board& board, move_vector<Move>& moves);
-    inline void enhance_policy_dropping_moves(MCTS* mcts, Board& board, move_vector<Move>& moves);
-    inline void enhance_policy_capturing_moves(MCTS* mcts, Board& board, move_vector<Move>& moves);
+    inline void enhance_policy_dirichlet(Board& board, move_vector<Move>& moves);
+    inline void enhance_policy_checking_moves(Board& board, move_vector<Move>& moves);
+    inline void enhance_policy_forking_moves(Board& board, move_vector<Move>& moves);
+    inline void enhance_policy_dropping_moves(Board& board, move_vector<Move>& moves);
+    inline void enhance_policy_capturing_moves(Board& board, move_vector<Move>& moves);
 
     //////////////////////////////////////////////////////////////////////////////////
     ////////////////////////////// BOARD CLASS MEMBERS ///////////////////////////////
@@ -325,6 +362,7 @@ namespace crazyzero
         case BLACK:
             return p.end_score<BLACK>();
         }
+        return 0.0;
     }
 
     //Returns a representation of the current board position that can be used as an input to the neural network.
@@ -723,6 +761,7 @@ namespace crazyzero
 
     inline void Board::calc_hash()
     {
+        /*
         const int p = 31;
         const int m = 1e9 + 9;
         this->hash = 0LL;
@@ -732,7 +771,8 @@ namespace crazyzero
             this->hash = (this->hash + (c - 'a' + 1) * p_pow) % m;
             p_pow = (p_pow * p) % m;
         }
-        //this->hash = p.fen();
+        */
+        this->hash = p.fen();
     }
 
     //////////////////////////////////////////////////////////////////////////////////
@@ -744,8 +784,19 @@ namespace crazyzero
     {
         if (!initialized)
         {
+            openings.init();
             nnet.init();
             nnet.predict(board);    // warm up the nnet
+            initialized = true;
+        }
+    }
+
+    inline void MCTS::init(cppflow::model* nnet_model)
+    {
+        if (!initialized)
+        {
+            openings.init();
+            nnet.model = nnet_model;
             initialized = true;
         }
     }
@@ -787,31 +838,10 @@ namespace crazyzero
         }
     }
 
-    //Updates the configuration of modifications.
-    inline void MCTS::update_config()
-    {
-        time_control = config.time_control;
-        variable_time_control = config.variable_time_control;
-        num_sims = config.num_sims;
-
-        set_best_move_strategy(config.best_move_strategy);
-        set_node_expansion_strategy(config.node_expansion_strategy);
-        set_backprop_strategy(config.backprop_strategy);
-
-        eval.eval_types = config.eval_types;
-
-        remove_policy_enhancement_strategies();
-        for (auto strat : config.policy_strategies)
-        {
-            add_policy_enhancement_strategy(strat);
-        }
-
-        config.changed = false;
-    }
-
     //Switches the MCTS modification configuration. Called when entering/leaving the time saving mode.
     inline void MCTS::on_mode_switch(bool state)
     {
+        /*
         if (variable_time_control)
             time_control = state;
 
@@ -830,6 +860,26 @@ namespace crazyzero
             for (auto strat : config.policy_strategies)
                 add_policy_enhancement_strategy(strat);
         }
+        */
+    }
+
+    //Sets the which modifications need to be used when searching.
+    inline void MCTS::set_config(const ModMask conf)
+    {
+        config = conf;
+
+        eval.eval_types = conf.eval_mask;
+
+        remove_policy_enhancement_strategies();
+        add_policy_enhancement_strategy(PolicyEnhancementStrat::Dirichlet);
+        if (conf.policy_mask & dropping_moves_mask)
+            add_policy_enhancement_strategy(PolicyEnhancementStrat::DroppingMoves);
+        if (conf.policy_mask & checking_moves_mask)
+            add_policy_enhancement_strategy(PolicyEnhancementStrat::CheckingMoves);
+        if (conf.policy_mask & forking_moves_mask)
+            add_policy_enhancement_strategy(PolicyEnhancementStrat::ForkingMoves);
+        if (conf.policy_mask & capturing_moves_mask)
+            add_policy_enhancement_strategy(PolicyEnhancementStrat::CapturingMoves);
     }
 
     //Sets the best move determination function to use.
@@ -922,24 +972,6 @@ namespace crazyzero
         explored_nodes = 0;
         best_move_cp = 0;
         mode_switch = false;
-
-        update_config();
-    }
-
-    //Resets, but keeps the configuration of modifications.
-    inline void MCTS::soft_reset()
-    {
-        move_data.clear();
-
-        player = NO_COLOR;
-        time_per_move = -1LL;
-        original_time = -1LL;
-        time_saving_mode = false;
-        time_simulating = 0LL;
-        executed_moves = 0;
-        explored_nodes = 0;
-        best_move_cp = 0;
-        mode_switch = false;
     }
 
     //Returns the best move in the given board's position.
@@ -950,10 +982,21 @@ namespace crazyzero
         if (moves.size() == 1)
             return moves.front();
 
+        //Use an opening move if available.
+        if (use_openings)
+        {
+            Move opening_move = openings.get_move(board.hash);
+            if (opening_move.from() != NO_SQUARE)
+                return opening_move;
+        }
+
         //Perform a quick mate search to see if a mate can be forced.
-        Move best_move = mate_search.mate_move(board);
-        if (best_move.from() != NO_SQUARE)
-            return best_move;
+        if (use_mate_search)
+        {
+            Move best_move = mate_search.mate_move(board);
+            if (best_move.from() != NO_SQUARE)
+                return best_move;
+        }
 
         //Perform simulations.
         explored_nodes = 0;
@@ -993,7 +1036,7 @@ namespace crazyzero
         //Find a leaf or terminal node.
         while (true)
         {
-            long long state = board.hash;
+            std::string state = board.hash;
 
             if (!move_data.contains(state))
             {
@@ -1037,7 +1080,7 @@ namespace crazyzero
 
                 //Enhance policy with additional strategies.
                 for (auto policy_strat : policy_strats)
-                    (*policy_strat)(this, board, moves);
+                    (*policy_strat)(board, moves);
 
                 v = static_cast<double>(-value);
                 break;
@@ -2029,9 +2072,9 @@ namespace crazyzero
     //Strategy for enhancing the prior probability of legal moves returned by the neural network.
 
     //Add values from a Dirichlet distribution.
-    inline void enhance_policy_dirichlet(MCTS* mcts, Board& board, move_vector<Move>& moves)
+    inline void enhance_policy_dirichlet(Board& board, move_vector<Move>& moves)
     {
-        std::vector<double> noise = mcts->dirichlet.get_noise();
+        std::vector<double> noise = Dirichlet::get_instance().get_noise();
         double sum_policy = 0.0;
         for (Move& move : moves)
         {
@@ -2051,7 +2094,7 @@ namespace crazyzero
     }
 
     //Improves probabilities for moves that result in a check.
-    inline void enhance_policy_checking_moves(MCTS* mcts, Board& board, move_vector<Move>& moves)
+    inline void enhance_policy_checking_moves(Board& board, move_vector<Move>& moves)
     {
         double max_policy = 0.0;
         for (const Move& move : moves)
@@ -2084,7 +2127,7 @@ namespace crazyzero
     }
 
     //Improves probabilities for moves that result in a fork.
-    inline void enhance_policy_forking_moves(MCTS* mcts, Board& board, move_vector<Move>& moves)
+    inline void enhance_policy_forking_moves(Board& board, move_vector<Move>& moves)
     {
         double max_policy = 0.0;
         for (const Move& move : moves)
@@ -2116,7 +2159,7 @@ namespace crazyzero
     }
 
     //Improves probabilities for dropping moves that benefit the player.
-    inline void enhance_policy_dropping_moves(MCTS* mcts, Board& board, move_vector<Move>& moves)
+    inline void enhance_policy_dropping_moves(Board& board, move_vector<Move>& moves)
     {
         double max_policy = 0.0;
         for (const Move& move : moves)
@@ -2148,7 +2191,7 @@ namespace crazyzero
     }
 
     //Improves probabilities for moves that result in a capture.
-    inline void enhance_policy_capturing_moves(MCTS* mcts, Board& board, move_vector<Move>& moves)
+    inline void enhance_policy_capturing_moves(Board& board, move_vector<Move>& moves)
     {
         double max_policy = 0.0;
         for (const Move& move : moves)

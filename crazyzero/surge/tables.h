@@ -19,7 +19,7 @@ extern Bitboard ROOK_ATTACKS[NSQUARES][4096];
 extern void initialise_rook_attacks();
 
 
-extern constexpr Bitboard get_rook_attacks(Square square, Bitboard occ);
+extern inline Bitboard get_rook_attacks(Square square, Bitboard occ);
 extern Bitboard get_xray_rook_attacks(Square square, Bitboard occ, Bitboard blockers);
 
 extern Bitboard get_bishop_attacks_for_init(Square square, Bitboard occ);
@@ -30,7 +30,7 @@ extern Bitboard BISHOP_ATTACKS[NSQUARES][512];
 extern void initialise_bishop_attacks();
 
 
-extern constexpr Bitboard get_bishop_attacks(Square square, Bitboard occ);
+extern inline Bitboard get_bishop_attacks(Square square, Bitboard occ);
 extern Bitboard get_xray_bishop_attacks(Square square, Bitboard occ, Bitboard blockers);
 
 extern Bitboard SQUARES_BETWEEN_BB[NSQUARES][NSQUARES];
@@ -237,7 +237,7 @@ void initialise_rook_attacks() {
 }
 
 //Returns the attacks bitboard for a rook at a given square, using the magic lookup table
-constexpr Bitboard get_rook_attacks(Square square, Bitboard occ) {
+inline Bitboard get_rook_attacks(Square square, Bitboard occ) {
 	return ROOK_ATTACKS[square][((occ & ROOK_ATTACK_MASKS[square]) * ROOK_MAGICS[square])
 		>> ROOK_ATTACK_SHIFTS[square]];
 }
@@ -303,7 +303,7 @@ void initialise_bishop_attacks() {
 }
 
 //Returns the attacks bitboard for a bishop at a given square, using the magic lookup table
-constexpr Bitboard get_bishop_attacks(Square square, Bitboard occ) {
+inline Bitboard get_bishop_attacks(Square square, Bitboard occ) {
 	return BISHOP_ATTACKS[square][((occ & BISHOP_ATTACK_MASKS[square]) * BISHOP_MAGICS[square])
 		>> BISHOP_ATTACK_SHIFTS[square]];
 }

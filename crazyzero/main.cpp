@@ -1,401 +1,269 @@
 #include <iostream>
 #include <stdlib.h>
+#include <sstream>
 #include <chrono>
-#include <format>
+#include <ctime>
 #include "utils.h"
 #include "crazyzero.h"
 #include "cppflow/cppflow.h"
-#include "uci/uci.hpp"
+#include "uci/uci.h"
 
+#define SELF_PLAY_LOG_NAME "./results/log"
+#define SELF_PLAY_CONFIGS_FILE_PATH "./self_play_configs.txt"
+#define GAMES_TO_PLAY 100
+#define MAX_SIMULATIONS 1600
+#define MIN_SIMULATIONS 100
+#define SIMULATIONS_INCREASE 200
 
+using namespace crazyzero;
 
-void play(std::ofstream& log, const int num_games, const int player1_nsims, const crazyzero::TestMask player1_config, const int player2_nsims, const crazyzero::TestMask player2_config) {
-	crazyzero::Board board;
-	crazyzero::MCTS player1;
-	crazyzero::MCTS player2;
-	player1.init(board);
-	player2.nnet.model = player1.nnet.model;
-	Color turn = WHITE, p1 = WHITE, p2 = BLACK;
+void play_games(Board& board, MCTS& player1, MCTS& player2, int num_games, const Color p1_start, const Color p2_start, const int init_p1_wins, const int init_p2_wins, const int init_draws, PGN_writer& pgn_log, std::ofstream& result_log)
+{
+	Color p1 = p1_start;
+	Color p2 = p2_start;
+	Color turn = WHITE;
 
-	auto const time = std::chrono::current_zone()
-		->to_local(std::chrono::system_clock::now());
-	std::string date = std::format("{:%Y-%m-%d}", time);
+	int p1_wins = init_p1_wins;
+	int p2_wins = init_p2_wins;
+	int draws = init_draws;
 
-	crazyzero::PGN pgn_log("./pgn_log.pgn");
+	std::ostringstream p1_name;
+	p1_name << player1.config << " " << player1.num_sims;
 
-	std::string p1_name = " -----|----", p2_name = "800 NORM";
+	std::ostringstream p2_name;
+	p2_name << player2.config << " " << player2.num_sims;
 
-	// configure player1
-	player1.player = p1;
-	player1.time_control = false;
-	player1.num_sims = player1_nsims;
-	player1.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::Dirichlet);
-
-	std::cout << "[PLAYER 1]: " << player1_nsims << " sims/move\n";
-
-	if (player1_config & crazyzero::material_mask) {
-		player1.eval.add_eval(crazyzero::material_mask);
-		p1_name[1] = '1';
-		std::cout << "    - material\n";
+	int starting_round = 0;
+	if (num_games < GAMES_TO_PLAY)
+	{
+		starting_round = GAMES_TO_PLAY - num_games;
+		num_games = GAMES_TO_PLAY;
 	}
 
-	if (player1_config & crazyzero::pawn_structure_mask) {
-		player1.eval.add_eval(crazyzero::pawn_structure_mask);
-		p1_name[2] = '2';
-		std::cout << "    - pawn structure\n";
-	}
+	for (int i = starting_round; i < num_games; i++)
+	{
+		player1.player = p1;
+		player2.player = p2;
 
-	if (player1_config & crazyzero::king_safety_mask) {
-		player1.eval.add_eval(crazyzero::king_safety_mask);
-		p1_name[3] = '3';
-		std::cout << "    - king safety\n";
-	}
-
-	if (player1_config & crazyzero::piece_placement_mask) {
-		player1.eval.add_eval(crazyzero::piece_placement_mask);
-		p1_name[4] = '4';
-		std::cout << "    - piece placement\n";
-	}
-
-	if (player1_config & crazyzero::board_control_mask) {
-		player1.eval.add_eval(crazyzero::board_control_mask);
-		p1_name[5] = '5';
-		std::cout << "    - board control\n";
-	}
-
-	if (player1_config & crazyzero::checking_moves_mask) {
-		player1.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::CheckingMoves);
-		p1_name[7] = '6';
-		std::cout << "    - checking moves\n";
-	}
-
-	if (player1_config & crazyzero::forking_moves_mask) {
-		player1.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::ForkingMoves);
-		p1_name[8] = '7';
-		std::cout << "    - forking moves\n";
-	}
-
-	if (player1_config & crazyzero::dropping_moves_mask) {
-		player1.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::DroppingMoves);
-		p1_name[9] = '8';
-		std::cout << "    - dropping moves\n";
-	}
-
-	if (player1_config & crazyzero::capturing_moves_mask) {
-		player1.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::CapturingMoves);
-		p1_name[10] = '9';
-		std::cout << "    - capturing moves\n";
-	}
-
-	p1_name = std::to_string(player1_nsims) + p1_name;
-
-	// configure player2
-	player2.player = p2;
-	player2.time_control = false;
-	player2.num_sims = player2_nsims;
-	player2.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::Dirichlet);
-
-	std::cout << "[PLAYER 2]: " << player2_nsims << " sims/move\n";
-
-	if (player2_config & crazyzero::material_mask) {
-		player2.eval.add_eval(crazyzero::material_mask);
-		std::cout << "    - material\n";
-	}
-
-	if (player2_config & crazyzero::pawn_structure_mask) {
-		player2.eval.add_eval(crazyzero::pawn_structure_mask);
-		std::cout << "    - pawn structure\n";
-	}
-
-	if (player2_config & crazyzero::king_safety_mask) {
-		player2.eval.add_eval(crazyzero::king_safety_mask);
-		std::cout << "    - king safety\n";
-	}
-
-	if (player2_config & crazyzero::piece_placement_mask) {
-		player2.eval.add_eval(crazyzero::piece_placement_mask);
-		std::cout << "    - piece placement\n";
-	}
-
-	if (player2_config & crazyzero::board_control_mask) {
-		player2.eval.add_eval(crazyzero::board_control_mask);
-		std::cout << "    - board control\n";
-	}
-
-	if (player2_config & crazyzero::checking_moves_mask) {
-		player2.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::CheckingMoves);
-		std::cout << "    - checking moves\n";
-	}
-
-	if (player2_config & crazyzero::forking_moves_mask) {
-		player2.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::ForkingMoves);
-		std::cout << "    - forking moves\n";
-	}
-
-	if (player2_config & crazyzero::dropping_moves_mask) {
-		player2.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::DroppingMoves);
-		std::cout << "    - dropping moves\n";
-	}
-
-	if (player2_config & crazyzero::dropping_moves_mask) {
-		player2.add_policy_enhancement_strategy(crazyzero::PolicyEnhancementStrat::CapturingMoves);
-		std::cout << "    - capturing moves\n";
-	}
-
-	int p1_wins = 0;
-	int p2_wins = 0;
-	int draws = 0;
-
-	std::cout << "[STARTED PLAYING]\n";
-
-	for (int i = 0; i < num_games; i++) {
 		if (p1 == WHITE)
-			pgn_log.new_game("Testing", i + 1, date, p1_name, p2_name);
+			pgn_log.new_game("Self-play", i + 1, p1_name.str(), p2_name.str());
 		else
-			pgn_log.new_game("Testing", i + 1, date, p2_name, p1_name);
+			pgn_log.new_game("Self-play", i + 1, p2_name.str(), p1_name.str());
 
 		int move_num = 0;
-		std::cout << "Game " << i + 1 << " of " << num_games << ", move " << move_num << ": ..\r";
+		std::cout << "P1 wins: " << p1_wins << ", P2 wins: " << p2_wins << ", draws: " << draws << " | playing game " << i + 1 << " of " << num_games << ", move " << move_num << "       \r";
 		double end_score = 0.0;
-		while (end_score == 0.0) {
+		while (end_score == 0.0)
+		{
 			Move move;
-			if (turn == player1.player) {
+			if (turn == player1.player)
 				move = player1.best_move(board);
-				pgn_log.add_move(board.san(move));
-				board.push(move);
-				std::cout << "Game " << i + 1 << " of " << num_games << ", move " << ++move_num << ": P1\r";
-			} else if (turn == player2.player) {
+			else
 				move = player2.best_move(board);
-				pgn_log.add_move(board.san(move));
-				board.push(move);
-				std::cout << "Game " << i + 1 << " of " << num_games << ", move " << ++move_num << ": P2\r";
-			}
+
+			pgn_log.add_move(board.san(move));
+			board.push(move);
+			move_num++;
+			std::cout << "P1 wins: " << p1_wins << ", P2 wins: " << p2_wins << ", draws: " << draws << " | playing game " << i + 1 << " of " << num_games << ", move " << move_num << "       \r";
 
 			turn = ~turn;
 			end_score = board.end_score(turn);
-
-			if (move_num >= 200) {
-				// reset game
-				turn = WHITE;
-				board.reset();
-				player1.soft_reset();
-				player1.player = p1;
-				player2.soft_reset();
-				player2.player = p2;
-				end_score = 0.0;
-				move_num = 0;
-
-				if (p1 == WHITE)
-					pgn_log.new_game("Testing", i + 1, date, p1_name, p2_name);
-				else
-					pgn_log.new_game("Testing", i + 1, date, p2_name, p1_name);
-			}
 		}
 
-		if (end_score < 0) {
-			if (turn == WHITE) {
-				std::cout << "Game " << i + 1 << " of " << num_games << ", move " << move_num << ": BLACK\n";
+		if (end_score < 0.0)
+		{
+			if (turn == WHITE)
+			{
 				pgn_log.flush(BLACK);
 				if (p1 == BLACK)
 					p1_wins++;
 				else
 					p2_wins++;
-			} else {
-				std::cout << "Game " << i + 1 << " of " << num_games << ", move " << move_num << ": WHITE\n";
+			} else
+			{
 				pgn_log.flush(WHITE);
 				if (p1 == WHITE)
 					p1_wins++;
 				else
 					p2_wins++;
 			}
-		} else {
-			std::cout << "Game " << i + 1 << " of " << num_games << ", move " << move_num << ": DRAW\n";
+		} 
+		else
+		{
 			pgn_log.flush(NO_COLOR);
 			draws++;
 		}
+
+		//std::cout << "\n";
 
 		turn = WHITE;
 		p1 = ~p1;
 		p2 = ~p2;
 		board.reset();
-		player1.soft_reset();
-		player1.player = p1;
-		player2.soft_reset();
-		player2.player = p2;
+		player1.reset();
+		player2.reset();
 	}
+
+	std::cout << "Final results -> P1 wins: " << p1_wins << ", P2 wins: " << p2_wins << ", draws: " << draws << "                                 \n";
 
 	crazyzero::Elo elo(p1_wins, p2_wins, draws);
 
 	std::cout << "ELO difference: " << elo.diff() << " +/- " << elo.error_margin() << "\n";
 
-	log << "Testing session: " << p1_name << " vs. " << p2_name << "\n";
-	log << "P1 wins: " << p1_wins << "\n";
-	log << "P2 wins: " << p2_wins << "\n";
-	log << "Draws: " << draws << "\n";
-	log << "ELO difference: " << elo.diff() << " +/- " << elo.error_margin() << "\n";
-	log.flush();
-
-	pgn_log.close();
-
-	//delete player1.nnet.model;
-	//player1.nnet.model = NULL;
-	player2.nnet.model = NULL;
+	result_log << "Self-play session: P1 [" << p1_name.str() << " simulations] vs. P2 [" << p2_name.str() << " simulations]\n";
+	result_log << "P1 wins: " << p1_wins << "\n";
+	result_log << "P2 wins: " << p2_wins << "\n";
+	result_log << "Draws: " << draws << "\n";
+	result_log << "ELO difference: " << elo.diff() << " +/- " << elo.error_margin() << "\n";
+	result_log.flush();
 }
 
-int get_num_simulations() {
-	int num_sims = 0;
-	while (num_sims == 0) {
-		std::string num_s;
-		std::cout << "Select number of simulations per move:\n";
-		std::cout << "    1 - 100\n";
-		std::cout << "    2 - 200\n";
-		std::cout << "    3 - 300\n";
-		std::cout << "    4 - 400\n";
-		std::cout << "    5 - 800\n";
-		std::cout << "    6 - 1600\n";
-		std::cout << "    7 - 2400\n";
-		std::cin >> num_s;
-		
-		if (num_s.length() > 0) {
-			switch (num_s[0]) {
-			case '1':
-				num_sims = 100;
-				break;
-			case '2':
-				num_sims = 200;
-				break;
-			case '3':
-				num_sims = 300;
-				break;
-			case '4':
-				num_sims = 400;
-				break;
-			case '5':
-				num_sims = 800;
-				break;
-			case '6':
-				num_sims = 1600;
-				break;
-			case '7':
-				num_sims = 2400;
-				break;
-			default:
-				std::cout << "ERROR: invalid selection\n";
-				break;
+void init_self_play(std::vector<SelfPlayConfig>& configs)
+{
+	std::ifstream file(SELF_PLAY_CONFIGS_FILE_PATH);
+
+	if (file.is_open())
+	{
+		std::string line;
+		std::getline(file, line);
+
+		//First line defines the range of simulations amounts to test.
+		// min_simulations-max_simulations-increment
+		size_t split_point = line.find('-');
+		int min_sims = std::stoi(line.substr(0, split_point));
+		line = line.substr(split_point + 1);
+		split_point = line.find('-');
+		int max_sims = std::stoi(line.substr(0, split_point));
+		int inc = std::stoi(line.substr(split_point + 1));
+
+		//All other lines define the configurations to be tested.
+		std::getline(file, line);
+		while (file)
+		{
+			for (int p2_sims = min_sims; p2_sims < max_sims; p2_sims += inc)
+			{
+				//Check if results for this configuration already exist and how many there are.
+				int p1_sims = p2_sims + inc;
+				std::ostringstream file_name;
+				file_name << SELF_PLAY_LOG_NAME << "_" << line << "_" << p2_sims << "-" << p1_sims << ".pgn";
+
+				SelfPlayConfig config;
+				config.config = parse_mod_mask(line);
+				config.p1_sims = p1_sims;
+				config.p2_sims = p2_sims;
+
+				PGN_reader pgn_file(file_name.str());
+				std::string player1, player2;
+				int p1_wins = 0, p2_wins = 0, draws = 0;
+				bool init_players = true;
+				while (pgn_file.read_game())
+				{
+					if (init_players)
+					{
+						init_players = false;
+						player1 = pgn_file.white;
+						player2 = pgn_file.black;
+					}
+
+					if (pgn_file.result == WHITE)
+					{
+						if (player1 == pgn_file.white)
+							p1_wins++;
+						else
+							p2_wins++;
+					} else if (pgn_file.result == BLACK)
+					{
+						if (player1 == pgn_file.black)
+							p1_wins++;
+						else
+							p2_wins++;
+					} else
+					{
+						draws++;
+					}
+				}
+
+				int all_games = p1_wins + p2_wins + draws;
+				if (all_games >= GAMES_TO_PLAY)
+					continue;
+
+				config.num_games = GAMES_TO_PLAY - all_games;
+				config.p1_wins = p1_wins;
+				config.p2_wins = p2_wins;
+				config.draws = draws;
+
+				if (all_games % 2)
+				{
+					config.p1_start = BLACK;
+					config.p2_start = WHITE;
+				}
+				else
+				{
+					config.p1_start = WHITE;
+					config.p2_start = BLACK;
+				}
+
+				configs.push_back(config);
 			}
-		} else {
-			std::cout << "ERROR: no option selected\n";
+			std::getline(file, line);
 		}
 	}
-	return num_sims;
 }
 
-std::string get_command() {
-	std::string command;
-	while (true) {
-		std::cout << "Select modifications to be tested:\n";
-		std::cout << "    1 - material\n";
-		std::cout << "    2 - pawn structure\n";
-		std::cout << "    3 - king safety\n";
-		std::cout << "    4 - piece placement\n";
-		std::cout << "    5 - board control\n";
-		std::cout << "    6 - checking moves\n";
-		std::cout << "    7 - forking moves\n";
-		std::cout << "    8 - dropping moves\n";
-		std::cout << "    9 - capturing moves\n";
+void self_play()
+{
+	std::cout << "[SELF-PLAY MODE]\n";
 
-		std::cin >> command;
-		if (command.length())
-			break;
-		else
-			std::cout << "ERROR: empty command\n";
-	}
-	return command;
-}
+	std::vector<SelfPlayConfig> configs;
+	init_self_play(configs);
 
-void start_testing(std::ofstream& log) {
-	std::cout << "[TEST MODE]\n";
+	Board board;
+	MCTS player1, player2;
+	player1.init(board);
+	player2.init(player1.nnet.model);
 
-	int num_sims_1 = get_num_simulations();
-	int num_sims_2 = get_num_simulations();
+	player1.time_control = false;
+	player2.time_control = false;
+	player1.use_openings = false;
+	player2.use_openings = false;
+	player1.use_mate_search = false;
+	player2.use_mate_search = false;
 
-	crazyzero::TestMask eval_config = 0;
-	bool no_command = false;
+	for (const SelfPlayConfig& config : configs)
+	{
+		std::cout << "[CONFIGURATION " << config.config << " | P1: " << config.p1_sims << " simulations, P2: " << config.p2_sims << " simulations]\n";
 
-	while (!no_command && eval_config == 0) {
-		std::string command = get_command();
-		for (char mod : command) {
-			switch (mod) {
-			case '1':
-				eval_config |= crazyzero::material_mask;
-				break;
-			case '2':
-				eval_config |= crazyzero::pawn_structure_mask;
-				break;
-			case '3':
-				eval_config |= crazyzero::king_safety_mask;
-				break;
-			case '4':
-				eval_config |= crazyzero::piece_placement_mask;
-				break;
-			case '5':
-				eval_config |= crazyzero::board_control_mask;
-				break;
-			case '6':
-				eval_config |= crazyzero::checking_moves_mask;
-				break;
-			case '7':
-				eval_config |= crazyzero::forking_moves_mask;
-				break;
-			case '8':
-				eval_config |= crazyzero::dropping_moves_mask;
-				break;
-			case '9':
-				eval_config |= crazyzero::capturing_moves_mask;
-				break;
-			case '0':
-				eval_config = 0;
-				no_command = true;
-				break;
-			default:
-				std::cout << "ERROR: invalid command\n";
-				eval_config = 0;
-				break;
-			}
-		}
+		player1.set_config(config.config);
+		player2.set_config(config.config);
+		player1.num_sims = config.p1_sims;
+		player2.num_sims = config.p2_sims;
+
+		std::ostringstream pgn_log_name;
+		pgn_log_name << SELF_PLAY_LOG_NAME << "_" << config.config << "_" << config.p2_sims << "-" << config.p1_sims << ".pgn";
+
+		std::ostringstream result_log_name;
+		result_log_name << SELF_PLAY_LOG_NAME << "_" << config.config << "_" << config.p2_sims << "-" << config.p1_sims << ".txt";
+
+		PGN_writer pgn_log(pgn_log_name.str());
+		std::ofstream result_log(result_log_name.str());
+
+		play_games(board, player1, player2, config.num_games, config.p1_start, config.p2_start, config.p1_wins, config.p2_wins, config.draws, pgn_log, result_log);
 	}
 
-	std::cout << "[STARTED TESTING]\n";
-	play(log, 100, num_sims_1, eval_config, num_sims_2, 0);
+	player2.nnet.model = nullptr;
 }
 
 int main(int argc, char* argv[]) 
 {
 	_putenv("TF_CPP_MIN_LOG_LEVEL=3");
-	using namespace crazyzero;
 
 	initialise_all_databases();
 	zobrist::initialise_zobrist_keys();
 	initialise_eval_tables();
 
-	std::cout << "CrazyZero 2.1 by Anei Makovec\n";
+	std::cout << "CrazyZero 2.2 by Anei Makovec\n";
 
 	/*
-	Board b;
-	MateSearch m;
-
-	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-	Move move = m.mate_move(b);
-	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-
-	if (move.from() != NO_SQUARE)
-		std::cout << "CHECKMATE\n";
-	else
-		std::cout << "NO CHECKMATE\n";
-
-	std::cout << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " milliseconds\n";
-	*/
-
 	//Testing MCTS simulations.
 	Board b;
 	MCTS mcts;
@@ -410,14 +278,15 @@ int main(int argc, char* argv[])
 
 	std::cout << "Best move: " << move << "\n";
 	std::cout << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() / 1000.0 << " seconds\n";
+	*/
 
-	return 0;
+	//self_play();
 
-	if (argc > 1 && std::string(argv[1]) == "-test_mode") {
-		// enter testing mode
-		std::ofstream log("./log.txt", std::ios_base::out | std::ios_base::app);
-		start_testing(log);
-		log.close();
+	//return 0;
+
+	if (argc > 1 && std::string(argv[1]) == "--self-play") {
+		// perform self-play test
+		self_play();
 	} else {
 		Board board;
 		MCTS mcts;
@@ -457,6 +326,7 @@ int main(int argc, char* argv[])
 			uci.send_uci_ok();
 			});
 		uci.receive_set_option.connect([&](const std::string& name, const std::string& value) {
+			/*
 			if (name == "UCI_Variant") {
 				// pass
 				return;
@@ -599,15 +469,13 @@ int main(int argc, char* argv[])
 				std::cout << "UCI ERROR: option " << name << " could not be set to value " << value << ".\n";
 			}
 			mcts.config.changed = true;
+			*/
 			});
 		uci.receive_debug.connect([&](bool on) {
 			debug_mode = on;
 			});
 		uci.receive_is_ready.connect([&]() {
 			mcts.init(board);
-			if (mcts.config.changed) {
-				mcts.update_config();
-			}
 			uci.send_ready_ok();
 			});
 		uci.receive_uci_new_game.connect([&]() {

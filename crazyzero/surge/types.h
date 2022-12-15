@@ -6,6 +6,7 @@
 #include <string>
 #include <ostream>
 #include <iostream>
+#include <sstream>
 #include <vector>
 
 const size_t NCOLORS = 2;
@@ -139,7 +140,16 @@ extern inline int pop_count(Bitboard x);
 extern inline int sparse_pop_count(Bitboard x);
 extern inline Square pop_lsb(Bitboard* b);
 
-extern const int DEBRUIJN64[64];
+constexpr int DEBRUIJN64[64] = {
+	0, 47,  1, 56, 48, 27,  2, 60,
+   57, 49, 41, 37, 28, 16,  3, 61,
+   54, 58, 35, 52, 50, 42, 21, 44,
+   38, 32, 29, 23, 17, 11,  4, 62,
+   46, 55, 26, 59, 40, 36, 15, 53,
+   34, 51, 20, 43, 31, 22, 10, 45,
+   25, 39, 14, 33, 19, 30,  9, 24,
+   13, 18,  8, 12,  7,  6,  5, 63
+};
 extern const Bitboard MAGIC;
 extern constexpr Square bsf(Bitboard b);
 
@@ -263,8 +273,29 @@ public:
 				case 'q':
 					move_flags = PR_QUEEN;
 					break;
+				default:
+					break;
 				}
 			}
+		}
+
+		bool is_encoded_string = false;
+		if (uci.size() >= 5)
+		{
+			switch (uci[4])
+			{
+			case 'n':
+			case 'b':
+			case 'r':
+			case 'q':
+				break;
+			default:
+				is_encoded_string = true;
+				break;
+			}
+
+			if (is_encoded_string)
+				move_flags = static_cast<MoveFlags>(std::stoi(uci.substr(4)));
 		}
 
 		move_hash = encode();
@@ -353,6 +384,8 @@ public:
 		// now return the full encoded action
 		return from_square * MOVES_PER_SQUARE + encoded_move;
 	}
+
+	inline std::string to_encoded_string();
 };
 
 //Adds, to the move pointer all moves of the form (from, s), where s is a square in the bitboard to
@@ -571,17 +604,6 @@ inline int sparse_pop_count(Bitboard x) {
 	return count;
 }
 
-const int DEBRUIJN64[64] = {
-	0, 47,  1, 56, 48, 27,  2, 60,
-   57, 49, 41, 37, 28, 16,  3, 61,
-   54, 58, 35, 52, 50, 42, 21, 44,
-   38, 32, 29, 23, 17, 11,  4, 62,
-   46, 55, 26, 59, 40, 36, 15, 53,
-   34, 51, 20, 43, 31, 22, 10, 45,
-   25, 39, 14, 33, 19, 30,  9, 24,
-   13, 18,  8, 12,  7,  6,  5, 63
-};
-
 const Bitboard MAGIC = 0x03f79d71b4cb0a89;
 
 //Returns the index of the least significant bit in the bitboard, and removes the bit from the bitboard
@@ -657,6 +679,13 @@ std::ostream& operator<<(std::ostream& os, const Move& m) {
 		os << SQSTR[m.from()] << SQSTR[m.to()];
 	}
 	return os;
+}
+
+inline std::string Move::to_encoded_string()
+{
+	std::ostringstream enc_string;
+	enc_string << *this << move_flags;
+	return enc_string.str();
 }
 
 #endif

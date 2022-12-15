@@ -3,10 +3,10 @@
 
 #include <cstddef>
 #include <iostream>
-#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
+#include "robin_hood/robin_hood.h"
 
 #include <boost/signals2.hpp>
 
@@ -68,7 +68,7 @@ public:
   boost::signals2::signal<void(bool later, const std::string& name, const std::size_t& code )> receive_register    ;
   boost::signals2::signal<void()>                                                              receive_uci_new_game;
   boost::signals2::signal<void(const std::string& fen, const std::vector<std::string>& moves)> receive_position    ;
-  boost::signals2::signal<void(const std::map<command, std::string>& parameters)>              receive_go          ;
+  boost::signals2::signal<void(const robin_hood::unordered_map<command, std::string>& parameters)>              receive_go          ;
   boost::signals2::signal<void()>                                                              receive_stop        ;
   boost::signals2::signal<void()>                                                              receive_ponder_hit  ;
   boost::signals2::signal<void()>                                                              receive_quit        ;
@@ -106,7 +106,7 @@ public:
     else if (state == state::error   ) string += " error";
     std::cout << string << std::endl;
   }
-  static void send_information                       (const std::map<information, std::string>& parameters)
+  static void send_information                       (const robin_hood::unordered_map<information, std::string>& parameters)
   {
     std::string string = "info";
     for (auto& parameter : parameters)
@@ -301,7 +301,7 @@ public:
       }
       else if (token == "go"        )
       {
-        std::map<command, std::string> commands;
+        robin_hood::unordered_map<command, std::string> commands;
         while (iss >> token)
           if      (token == "searchmoves")
             while (iss >> token)

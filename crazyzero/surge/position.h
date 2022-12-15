@@ -6,7 +6,7 @@
 #include <utility>
 #include <sstream>
 #include <list>
-#include <unordered_map>
+#include "robin_hood/robin_hood.h"
 #include "types.h"
 #include "tables.h"
 
@@ -105,7 +105,7 @@ public:
 	Bitboard promoted;
 
 	//How many times a certain board position occured
-	std::unordered_map<std::string, int> repetitions;
+	robin_hood::unordered_map<std::string, int> repetitions;
 	
 	
 	Position() : piece_bb{ 0 }, side_to_play(WHITE), game_ply(0), board{}, pocket{ {}, {} },
@@ -1422,8 +1422,7 @@ inline bool Position::is_fivefold_repetition() {
 	std::string board_fen = fen_board();
 	if (repetitions.contains(board_fen) && repetitions[board_fen] >= 4)
 		return true;
-	else
-		return false;
+	return false;
 }
 
 //Check if reached end of game and returnes the score that the player got

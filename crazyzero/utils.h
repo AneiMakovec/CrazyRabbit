@@ -1,18 +1,14 @@
 #ifndef CRAZYZERO_UTILS_HPP
 #define CRAZYZERO_UTILS_HPP
 
-#include <stdlib.h>
 #include <string>
 #include <set>
-#include <vector>
-#include <unordered_map>
-#include <map>
-#include <robin_hood.h>
-#include <iostream>
-#include <sstream>
 #include <fstream>
+#include <chrono>
+#include <format>
 #include "surge/types.h"
 #include "dirichlet/dirichlet.h"
+#include "robin_hood/robin_hood.h"
 
 namespace crazyzero
 {
@@ -30,7 +26,7 @@ namespace crazyzero
 
     constexpr int attackers_index = 11;
     constexpr AttackInfo clear_attackers = 0b0000011111111111;
-    const AttackInfo attack_mask[NPIECE_TYPES] = { 0b0000010000000000,
+    constexpr AttackInfo attack_mask[NPIECE_TYPES] = { 0b0000010000000000,
                                                    0b0000001000000000,
                                                    0b0000000100000000,
                                                    0b0000000010000000,
@@ -38,7 +34,7 @@ namespace crazyzero
                                                    0b0000000000100000 };
     constexpr AttackInfo attacks_mask = 0b0000011111100000;
 
-    const AttackInfo drop_mask[NPIECE_TYPES] = { 0b0000000000010000,
+    constexpr AttackInfo drop_mask[NPIECE_TYPES] = { 0b0000000000010000,
                                                    0b0000000000001000,
                                                    0b0000000000000100,
                                                    0b0000000000000010,
@@ -72,7 +68,7 @@ namespace crazyzero
         return static_cast<int>(info >> attackers_index);
     }
 
-    constexpr void print_attack_info(AttackInfo& info)
+    inline void print_attack_info(AttackInfo& info)
     {
         int num_attacks = info >> attackers_index;
         if (num_attacks)
@@ -124,12 +120,178 @@ namespace crazyzero
     constexpr EvalMask piece_placement_mask = 0b00001000;
     constexpr EvalMask board_control_mask = 0b00010000;
 
-    typedef uint16_t TestMask;
+    typedef uint8_t PolicyMask;
 
-    constexpr TestMask checking_moves_mask = 0b0000000000100000;
-    constexpr TestMask forking_moves_mask = 0b0000000001000000;
-    constexpr TestMask dropping_moves_mask = 0b0000000010000000;
-    constexpr TestMask capturing_moves_mask = 0b0000000100000000;
+    constexpr PolicyMask dropping_moves_mask = 0b00000001;
+    constexpr PolicyMask checking_moves_mask = 0b00000010;
+    constexpr PolicyMask forking_moves_mask = 0b00000100;
+    constexpr PolicyMask capturing_moves_mask = 0b00001000;
+
+    struct ModMask
+    {
+        EvalMask eval_mask = 0U;
+        PolicyMask policy_mask = 0U;
+    };
+
+    std::ostream& operator<<(std::ostream& os, const ModMask& m)
+    {
+        if (!m.eval_mask && !m.policy_mask)
+        {
+            os << "default";
+            return os;
+        }
+
+        bool started = false;
+
+        if (m.eval_mask & material_mask)
+        {
+            os << "MT";
+            started = true;
+        }
+
+        if (m.eval_mask & pawn_structure_mask)
+        {
+            if (started)
+                os << "-";
+            else
+                started = true;
+
+            os << "PS";
+        }
+
+        if (m.eval_mask & king_safety_mask)
+        {
+            if (started)
+                os << "-";
+            else
+                started = true;
+
+            os << "KS";
+        }
+
+        if (m.eval_mask & piece_placement_mask)
+        {
+            if (started)
+                os << "-";
+            else
+                started = true;
+
+            os << "PP";
+        }
+
+        if (m.eval_mask & board_control_mask)
+        {
+            if (started)
+                os << "-";
+            else
+                started = true;
+
+            os << "BC";
+        }
+
+        if (m.policy_mask & dropping_moves_mask)
+        {
+            if (started)
+                os << "-";
+            else
+                started = true;
+
+            os << "DM";
+        }
+
+        if (m.policy_mask & checking_moves_mask)
+        {
+            if (started)
+                os << "-";
+            else
+                started = true;
+
+            os << "CHM";
+        }
+
+        if (m.policy_mask & forking_moves_mask)
+        {
+            if (started)
+                os << "-";
+            else
+                started = true;
+
+            os << "FM";
+        }
+
+        if (m.policy_mask & capturing_moves_mask)
+        {
+            if (started)
+                os << "-";
+            else
+                started = true;
+
+            os << "CPM";
+        }
+
+        return os;
+    }
+
+    inline ModMask parse_mod_mask(std::string mask)
+    {
+        ModMask mod_mask;
+
+        bool end = false;
+        size_t split_point;
+        std::string mod;
+        while (!end)
+        {
+            split_point = mask.find('-');
+            if (split_point == std::string::npos)
+            {
+                mod = mask;
+                end = true;
+            }
+            else
+            {
+                mod = mask.substr(0, split_point);
+                mask = mask.substr(split_point + 1);
+            }
+
+            if (mod == "MT")
+            {
+                mod_mask.eval_mask |= material_mask;
+            }
+            else if (mod == "PS")
+            {
+                mod_mask.eval_mask |= pawn_structure_mask;
+            }
+            else if (mod == "KS")
+            {
+                mod_mask.eval_mask |= king_safety_mask;
+            }
+            else if (mod == "PP")
+            {
+                mod_mask.eval_mask |= piece_placement_mask;
+            }
+            else if (mod == "BC")
+            {
+                mod_mask.eval_mask |= board_control_mask;
+            }
+            else if (mod == "CHM")
+            {
+                mod_mask.policy_mask |= checking_moves_mask;
+            }
+            else if (mod == "FM")
+            {
+                mod_mask.policy_mask |= forking_moves_mask;
+            }
+            else if (mod == "DM")
+            {
+                mod_mask.policy_mask |= dropping_moves_mask;
+            }
+            else if (mod == "CPM")
+            {
+                mod_mask.policy_mask |= capturing_moves_mask;
+            }
+        }
+        return mod_mask;
+    }
 
     // --------------------- material -----------------------
     //const double material_value[NPIECE_TYPES] =
@@ -165,18 +327,18 @@ namespace crazyzero
     const double isolated_pawn_pen[2][2][2] = {
                                                 {                         // 0 supporters
                                                     {                         // can advance
-                                                        {-0.120},                 // closed file
-                                                        {-0.260} },               // open file
+                                                        -0.120,                 // closed file
+                                                        -0.260 },               // open file
                                                     {                         // stopped
-                                                        {-0.220},                 // closed file
-                                                        {-0.360} } },             // open file
+                                                        -0.220,                 // closed file
+                                                        -0.360 } },             // open file
                                                 {                         // 1 supporter
                                                     {                         // can advance
-                                                        {-0.040},                 // closed file
-                                                        {-0.120} },               // open file
+                                                        -0.040,                 // closed file
+                                                        -0.120 },               // open file
                                                     {                         // stopped
-                                                        {-0.140},                 // closed file
-                                                        {-0.220} } } };           // open file
+                                                        -0.140,                 // closed file
+                                                        -0.220 } } };           // open file
 
     // ----------------------- king safety ----------------------------
 
@@ -254,7 +416,7 @@ namespace crazyzero
     int cross_distance_w[8][NSQUARES];
     int cross_distance_b[8][NSQUARES];
 
-    constexpr void init_diamond_distances()
+    inline void init_diamond_distances()
     {
         for (int zone = 0; zone < 8; zone++)
         {
@@ -292,7 +454,7 @@ namespace crazyzero
         }
     }
 
-    constexpr void init_cross_distances()
+    inline void init_cross_distances()
     {
         for (int zone = 0; zone < 8; zone++)
         {
@@ -684,7 +846,7 @@ namespace crazyzero
     }
     */
 
-    constexpr void initialise_eval_tables()
+    inline void initialise_eval_tables()
     {
         init_diamond_distances();
         init_cross_distances();
@@ -720,7 +882,7 @@ namespace crazyzero
     constexpr double time_proportion = 0.05;
     constexpr double eval_factor = 0.25;
 
-    typedef robin_hood::unordered_map<long long, move_vector<Move>> MD_t;
+    typedef robin_hood::unordered_map<std::string, move_vector<Move>> MD_t;
 
     enum class BestMoveStrat
     {
@@ -755,27 +917,18 @@ namespace crazyzero
 
     struct MCTS_config
     {
-
-        bool changed;
-
-        bool time_control;
-        bool variable_time_control;
         int num_sims;
         BestMoveStrat best_move_strategy;
         NodeExpansionStrat node_expansion_strategy;
         BackpropStrat backprop_strategy;
+        bool use_dirichlet;
 
-        EvalMask eval_types;
-        std::set<PolicyEnhancementStrat> policy_strategies;
+        bool config_switch;
+        ModMask config;
+        ModMask config_ts;
 
-        bool time_saving_config;
-        EvalMask ts_eval_types;
-        std::set<PolicyEnhancementStrat> ts_policy_strategies;
-
-        MCTS_config() : changed(false), time_control(true), variable_time_control(false), num_sims(100),
-            best_move_strategy(BestMoveStrat::Default), node_expansion_strategy(NodeExpansionStrat::Default), backprop_strategy(BackpropStrat::Default),
-            eval_types(0), time_saving_config(false), ts_eval_types(0)
-        {}
+        MCTS_config() : num_sims(100), best_move_strategy(BestMoveStrat::Default), node_expansion_strategy(NodeExpansionStrat::Default), backprop_strategy(BackpropStrat::Default),
+                        use_dirichlet(true), config_switch(false), config(), config_ts() {}
 
         ~MCTS_config() = default;
     };
@@ -788,7 +941,6 @@ namespace crazyzero
         dirichlet_distribution<std::mt19937>* d;
         std::mt19937 gen;
 
-    public:
         Dirichlet()
         {
             std::random_device rd;
@@ -798,6 +950,16 @@ namespace crazyzero
         }
 
         ~Dirichlet() { delete d; }
+
+    public:
+        static Dirichlet& get_instance()
+        {
+            static Dirichlet instance;
+            return instance;
+        }
+
+        Dirichlet(const Dirichlet&) = delete;
+        void operator=(const Dirichlet&) = delete;
 
         //Returns a Dirichlet noise sample.
         inline std::vector<double> get_noise() { return (d->operator())(gen); }
@@ -874,7 +1036,7 @@ namespace crazyzero
         inline double LOS() const { return 100 * (0.5 + 0.5 * std::erf((static_cast<double>(m_wins) - static_cast<double>(m_losses)) / std::sqrt(2.0 * (static_cast<double>(m_wins) + static_cast<double>(m_losses))))); }
     };
 
-    class PGN
+    class PGN_writer
     {
     public:
         std::string event_name;
@@ -887,12 +1049,16 @@ namespace crazyzero
 
         std::vector<std::string> moves;
 
-        PGN(const std::string file_name) { pgn_file = std::ofstream(file_name, std::ios_base::out | std::ios_base::app); }
+        PGN_writer() = delete;
 
-        inline void new_game(const std::string event_n, const int r, const std::string d, const std::string white_name, const std::string black_name)
+        PGN_writer(const std::string file_path) { pgn_file = std::ofstream(file_path, std::ios_base::out | std::ios_base::app); }
+
+        inline void new_game(const std::string event_n, const int r, const std::string white_name, const std::string black_name)
         {
             event_name = event_n;
-            date = d;
+            auto const time = std::chrono::current_zone()
+                ->to_local(std::chrono::system_clock::now());
+            date = std::format("{:%Y-%m-%d}", time);
             round = r;
             white = white_name;
             black = black_name;
@@ -951,6 +1117,126 @@ namespace crazyzero
         }
 
         inline void close() { pgn_file.close(); }
+    };
+
+    class PGN_reader
+    {
+    public:
+        std::string event_name;
+        std::string site;
+        std::string date;
+        int round;
+        std::string white;
+        std::string black;
+        Color result;
+        std::string variant;
+
+        std::ifstream pgn_file;
+
+        PGN_reader() = delete;
+
+        PGN_reader(const std::string file_path) { pgn_file = std::ifstream(file_path); }
+
+        inline bool read_game()
+        {
+            if (pgn_file.is_open() && pgn_file)
+            {
+                bool reading_tags = true;
+
+                std::string line;
+                while (line.empty())
+                {
+                    if (!pgn_file)
+                        return false;
+
+                    std::getline(pgn_file, line);
+                }
+
+                while (true)
+                {
+                    if (!pgn_file)
+                        return true;
+
+                    if (reading_tags)
+                    {
+                        if (line.empty())
+                        {
+                            std::getline(pgn_file, line);
+                            reading_tags = false;
+                            continue;
+                        }
+
+                        line = line.substr(1, line.find(']'));
+                        size_t split_point = line.find(' ');
+                        std::string tag = line.substr(0, split_point);
+                        std::string value = line.substr(split_point + 1);
+                        value = value.substr(1);
+                        value = value.substr(0, value.find('"'));
+
+                        if (tag == "Event")
+                        {
+                            event_name = value;
+                        }
+                        else if (tag == "Site")
+                        {
+                            site = value;
+                        }
+                        else if (tag == "Date")
+                        {
+                            date = value;
+                        }
+                        else if (tag == "Round")
+                        {
+                            round = std::stoi(value);
+                        }
+                        else if (tag == "White")
+                        {
+                            white = value;
+                        }
+                        else if (tag == "Black")
+                        {
+                            black = value;
+                        }
+                        else if (tag == "Result")
+                        {
+                            if (value == "1-0")
+                                result = WHITE;
+                            else if (value == "0-1")
+                                result = BLACK;
+                            else
+                                result = NO_COLOR;
+                        }
+                        else if (tag == "Variant")
+                        {
+                            variant = value;
+                        }
+                    }
+                    else
+                    {
+                        if (line.empty())
+                            return true;
+                        //TODO: read moves
+                    }
+
+                    std::getline(pgn_file, line);
+                }
+            }
+
+            return false;
+        }
+    };
+
+    struct SelfPlayConfig
+    {
+        ModMask config;
+        int num_games;
+        int p1_sims;
+        int p2_sims;
+        Color p1_start;
+        Color p2_start;
+        int p1_wins;
+        int p2_wins;
+        int draws;
     };
 }
 
