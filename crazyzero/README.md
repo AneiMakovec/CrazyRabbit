@@ -1,4 +1,4 @@
-# CrazyZero
+# CrazyRabbit
 
 The full implementation of the program.
 
